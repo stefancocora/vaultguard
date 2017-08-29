@@ -70,9 +70,12 @@ function build {
     go get -u github.com/golang/dep/cmd/dep 
   fi
 
-  CMD_LINT="golint ./..."
+  CMD_LINT="golint $(go list ./... | grep -v vendor)"
   # CMD_GOTEST="go test -v -race --cover --coverprofile testcoverageprofile.out $(go list ./...| grep -v vendor)"
-  CMD_GOTEST="for i in $(go list ./...|grep -v vendor); do go test -v -race --cover --coverprofile testcoverageprofile-$i.out; done"
+  declare -a TEST_SRC
+  TEST_SRC=(pkg cmd)
+  CMD_GOTEST="go test $(go list ./... ./vendor/... | grep -v vendor) -v -race"
+  # CMD_GOTEST="for i in $(go list ./...|grep -v vendor); do echo $i; go test -v -race --cover --coverprofile testcoverageprofile-$i.out; done"
   # CMD_GOTEST="for p in $(glide novendor) ; do go test $p -v -race --cover --coverprofile testcoverageprofile.out; done"
   # coverprofile tool cant handle multiple packages at the same time
   # https://github.com/golang/go/issues/6909
@@ -90,7 +93,7 @@ function build {
   # go tool vet can't find vendored packages
   # https://github.com/golang/go/issues/17571#issuecomment-257977762
   # CMD_VET="go tool vet -v ${VETARGS} *.go"
-  CMD_VET="go vet -x ${VETARGS} ./"
+  CMD_VET="go vet -x ${VETARGS} $(go list ./... | grep -v vendor)"
 
   # quotes in bash are a mess
   # http://stackoverflow.com/questions/13799789/expansion-of-variable-inside-single-quotes-in-a-command-in-bash-shell-script
@@ -118,18 +121,6 @@ function build {
             -X github.com/stefancocora/${PROJECT_NAME}/pkg/version.Version=${APPVERSION}
     "
   fi
-  echo " build flags: ${LDFLAGS}"
-  CMD_INSTALL='go install -ldflags "'"${LDFLAGS}"'" ./...'
-  echo "=== build: vendoring dependencies - ${CMD_DEP}"
-  CMD_DEP="dep ensure"
-  eval ${CMD_DEP}
-  if [[ $? -ne 0 ]];
-  then
-    date
-    echo "=== error when vendoring dependencies ..."
-    exit 1
-  fi
-
   printf "\n=== build: unitesting - ${CMD_GOTEST}\n"
   # go test -v --cover --coverprofile testcoverageprofile.out
   eval ${CMD_GOTEST}
@@ -137,14 +128,9 @@ function build {
   then
     # goling doesn't have a flag to ignore the vendor/ dir
     printf "\n=== build: linting code - ${CMD_LINT}\n"
-    if [[ -d vendor ]];
-    then
-      mv vendor _vendor
-      eval ${CMD_LINT}
-      mv _vendor vendor
-    fi
-    printf "\n=== build: generating test coverage html output - ${CMD_COVERPROFILE_HTML}\n"
-    eval ${CMD_COVERPROFILE_HTML}
+    eval ${CMD_LINT}
+    # printf "\n=== build: generating test coverage html output - ${CMD_COVERPROFILE_HTML}\n"
+    # eval ${CMD_COVERPROFILE_HTML}
     printf "\n=== build: vet-ing code - ${CMD_VET}\n\n"
     eval ${CMD_VET}
     if [[ $? -ne 0 ]];
@@ -166,16 +152,13 @@ function build {
     export CGO_ENABLED=0
     echo "GODEBUG=$GODEBUG"
     echo "CGO_ENABLED=$CGO_ENABLED"
-    # cheating and copying the binary created by go install
+
     printf "\n=== build: installing current binary and object files - ${CMD_INSTALL}\n"
-    # force to statically link when using the net std lib
-    # https://golang.org/pkg/net/#hdr-Name_Resolution
-    # https://www.osso.nl/blog/golang-statically-linked/
     export GODEBUG=netdns=go+1
     export CGO_ENABLED=0
     echo "GODEBUG=$GODEBUG"
     echo "CGO_ENABLED=$CGO_ENABLED"
-    go install -ldflags "${LDFLAGS}" ./...
+    go install -ldflags "${LDFLAGS}" .
     # for a proper semver release for public consumption build it without a GITCOMMIT at all, so that it comes out like this (code automatically takes out the -dev part)
     # go clean -i -r
     # go install ./...
@@ -187,6 +170,8 @@ function build {
       echo "=== error when installing code - something failed ..."
       exit 1
     fi
+
+    printf "\n=== build: checking the installed binary\n"
     cp "${GOPATH}/bin/${NAME}" "$CWD/bin/${NAME}"
     echo ""
     ls -lha "${GOPATH}/bin/${NAME}"
