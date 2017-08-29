@@ -4,78 +4,59 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"path"
-	// "strconv"
-	"strings"
 )
 
-// ShiftPath splits off the first component of p, which will be cleaned of
-// relative components before processing. head will never contain a slash and
-// tail will always be a rooted path without trailing slash.
-func ShiftPath(p string) (head, tail string) {
-	p = path.Clean("/" + p)
-	i := strings.Index(p[1:], "/") + 1
-	if i <= 0 {
-		return p[1:], "/"
-	}
-	return p[1:i], p[i:]
+const binary = "vaultguard"
+
+func main() {
+
+	// handlers
+	http.HandleFunc("/healthz", healthz)       // new goroutine, careful with locking
+	http.HandleFunc("/status", status)         // new goroutine, careful with locking
+	http.HandleFunc("/pausewatch", pausewatch) // new goroutine, careful with locking
+
+	addr := "localhost:8001"
+	log.Printf("%v is listening on %v\n", binary, addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		log.Fatalf("[FATAL] unable to bind to %v: %v", addr, err)
+	} // attaching to DefaultServeMux
+
 }
 
-// A API is doing something
-type API struct {
-	// We could use http.Handler as a type here; using the specific type has
-	// the advantage that static analysis tools can link directly from
-	// h.HealthzHandler.ServeHTTP to the correct definition. The disadvantage is
-	// that we have slightly stronger coupling. Do the tradeoff yourself.
-	// https://blog.merovius.de/2017/06/18/how-not-to-use-an-http-router.html
-	HealthzHandler *HealthzHandler
-}
-
-func (h *API) ServeHTTP(res http.ResponseWriter, req *http.Request) {
-	var head string
-	// var tail string
-	// head, tail = ShiftPath(req.URL.String())
-	// fmt.Printf("head: %s, tail: %s\n", head, tail)
-	head, _ = ShiftPath(req.URL.String())
-	// head, req.URL.String() = ShiftPath(req.URL.String())
-	if head == "healthz" {
-		h.HealthzHandler.ServeHTTP(res, req)
-		return
-	}
-	http.Error(res, "Not Found", http.StatusNotFound)
-}
-
-// A HealthzHandler is doing something
-type HealthzHandler struct {
-}
-
-func (h *HealthzHandler) ServeHTTP(res http.ResponseWriter, req *http.Request) {
+func healthz(res http.ResponseWriter, req *http.Request) {
 
 	switch req.Method {
 	case "GET":
-		h.healthzHandleGet(res, req)
-	case "PUT":
-		h.handlePut(res, req)
+		res.WriteHeader(http.StatusOK)
+		fmt.Fprint(res, "health: ok")
 	default:
-		http.Error(res, "Only GET and PUT are allowed", http.StatusMethodNotAllowed)
+		http.Error(res, "Only GET is allowed", http.StatusMethodNotAllowed)
+	}
+
+}
+
+// status should heartbeat and check multiple vault servers for
+// if initialized
+// if unsealed
+func status(res http.ResponseWriter, req *http.Request) {
+
+	switch req.Method {
+	case "GET":
+		res.WriteHeader(http.StatusOK)
+		fmt.Fprint(res, "status: doing nothing for now")
+	default:
+		http.Error(res, "Only GET is allowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func (h *HealthzHandler) healthzHandleGet(res http.ResponseWriter, req *http.Request) {
-  res.WriteHeader(http.StatusOK)
-	fmt.Fprintln(res, "health: ok")
-}
+// pausewatch should put the webserver into a wait like state where it will respond with /healthz 200Ok and body { pause activated, not watching over any vault instances }
+func pausewatch(res http.ResponseWriter, req *http.Request) {
 
-func (h *HealthzHandler) handlePut(res http.ResponseWriter, req *http.Request) {
-	fmt.Println("handle PUT method")
-}
-
-func main() {
-	bindAddr := "0.0.0.0:8001"
-	a := &API{
-		HealthzHandler: new(HealthzHandler),
-	}
-	if err := http.ListenAndServe(bindAddr, a); err != nil {
-		log.Fatalf("[FATAL] unable to bind to %v: %v", bindAddr, err)
+	switch req.Method {
+	case "GET":
+		res.WriteHeader(http.StatusOK)
+		fmt.Fprint(res, "pausewatch: doing nothing for now")
+	default:
+		http.Error(res, "Only GET is allowed", http.StatusMethodNotAllowed)
 	}
 }
