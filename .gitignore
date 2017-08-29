@@ -1,0 +1,12 @@
+bin/
+.clusterctl/
+tmp/
+BUILD
+VERSION
+tags
+.tags*
+./tags
+.terraform/
+# emacs lock files
+.#*
+*.patch
