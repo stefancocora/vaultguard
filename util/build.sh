@@ -187,11 +187,11 @@ function build {
       echo "=== error when installing code - something failed ..."
       exit 1
     fi
-    cp ${GOPATH}/bin/${NAME} $CWD/bin
+    cp "${GOPATH}/bin/${NAME}" "$CWD/bin/${NAME}"
     echo ""
-    ls -lha ${GOPATH}/bin/${NAME}
-    file ${GOPATH}/bin/${NAME}
-    ldd ${GOPATH}/bin/${NAME}
+    ls -lha "${GOPATH}/bin/${NAME}"
+    file "${GOPATH}/bin/${NAME}"
+    ldd "${GOPATH}/bin/${NAME}"
     echo ""
     date
     echo "--- done build"
@@ -212,7 +212,7 @@ case ${APPENVIRONMENT} in
       echo "appversion: ${APPVERSION}"
       echo "debug: ${DEBUG}"
     fi
-    build ${APPENVIRONMENT}
+    build "${APPENVIRONMENT}"
     shift
     ;;
     production)
