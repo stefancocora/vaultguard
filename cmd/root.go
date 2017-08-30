@@ -22,8 +22,6 @@ var RootCmd = &cobra.Command{
 
                 Documentation is available at http://doesnotexist.yet`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var addr string
-		var port string
 		// required flags
 		configFile := cmd.Flags().Lookup("config").Value.String()
 		if debugPtr {
@@ -36,14 +34,7 @@ var RootCmd = &cobra.Command{
 			return errors.New("unable to continue due to missing configuration")
 		}
 
-		addr = viper.GetString("app.vaultguard.listen_address")
-		// if _, ok := viper.Get("app.vaultguard.listen_port").(string); !ok {
-		// 	return errors.New("listen_port has to be of type string")
-		// }
-		port = viper.GetString("app.vaultguard.listen_port")
-		sConf := listener.Config{
-			Address:     addr,
-			Port:        port,
+		sConf := listener.DbgConfig{
 			Debug:       debugPtr,
 			DebugConfig: debugConfPtr,
 		}

@@ -16,29 +16,34 @@ import (
 
 var debugListenerPtr bool
 
-// Config is the type that is used to pass configuration to the http server
-type Config struct {
-	Address     string `yaml:"listen_address" json:"listen_address"`
-	Port        string `yaml:"listen_port" json:"listen_port"`
+// DbgConfig is the type that is used to pass configuration to the http server
+type DbgConfig struct {
 	Debug       bool
 	DebugConfig bool
 }
 
 // Entrypoint represents the entrypoint in the server package
-func Entrypoint(srvConfig Config) error {
+func Entrypoint(srvConfig DbgConfig) error {
 	debugListenerPtr = srvConfig.Debug
 
 	if debugListenerPtr {
 		log.Printf("received config: %#v", srvConfig)
 	}
 
-	run(srvConfig)
+	// step: read config file
+	log.Println("reading config file")
+	var vgconf vaultg.Config
+	if err := vgconf.New(); err != nil {
+		log.Printf("unable to create vaultguard configuration %v", err)
+	}
+
+	run(srvConfig, vgconf)
 
 	return nil
 }
 
 // run starts all long running threads and communication channels
-func run(srvConfig Config) {
+func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 
 	// create a context that we can cancel
 	ctx, cancel := context.WithCancel(context.Background())
@@ -58,16 +63,16 @@ func run(srvConfig Config) {
 		log.Println("*** debug: run: starting the httpSrv ")
 	}
 	wg.Add(1)
-	go startListen(ctx, srvConfig, wg)
+	go startListen(ctx, srvConfig, vgconf, wg)
 
 	// step: start vaultInit worker
 	if debugListenerPtr {
 		vaultg.PropagateDebug(srvConfig.Debug, srvConfig.DebugConfig)
 	}
-	var vgconf vaultg.Config
-	if err := vgconf.New(); err != nil {
-		log.Printf("unable to create vaultguard configuration %v", err)
-	}
+	// var vgconf vaultg.Config
+	// if err := vgconf.New(); err != nil {
+	// 	log.Printf("unable to create vaultguard configuration %v", err)
+	// }
 	retErrChInit := make(chan error)
 	if vgconf.GuardConfig.Init {
 		log.Println("*** debug: run: starting the vaultInit worker")
@@ -81,15 +86,11 @@ func run(srvConfig Config) {
 	if debugListenerPtr {
 		vaultg.PropagateDebug(srvConfig.Debug, srvConfig.DebugConfig)
 	}
-	var vgconf02 vaultg.Config
-	if err := vgconf02.New(); err != nil {
-		log.Printf("unable to create vaultguard configuration %v", err)
-	}
 	retErrChUnseal := make(chan error)
-	if vgconf02.GuardConfig.Init {
+	if vgconf.GuardConfig.Init {
 		log.Println("*** debug: run: starting the vaultUnseal worker")
 		wg.Add(1)
-		go vaultg.RunUnseal(ctx, vgconf02, wg, retErrChUnseal) // start vault Init worker
+		go vaultg.RunUnseal(ctx, vgconf, wg, retErrChUnseal) // start vault Init worker
 	} else {
 		log.Printf("run: unseal phase is disabled in the config file: %v", vgconf.GuardConfig.Init)
 	}
@@ -114,10 +115,10 @@ func run(srvConfig Config) {
 }
 
 // startListen starts the HTTP server
-func startListen(ctx context.Context, srvConfig Config, wg *sync.WaitGroup) {
+func startListen(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config, wg *sync.WaitGroup) {
 
 	defer wg.Done()
-	addr := srvConfig.Address + ":" + srvConfig.Port
+	addr := vaultg.Address + ":" + vaultg.Port
 	logger := log.New(os.Stdout, "", log.Ldate|log.Lshortfile)
 
 	hs := &http.Server{
