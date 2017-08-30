@@ -36,14 +36,11 @@ var RootCmd = &cobra.Command{
 			return errors.New("unable to continue due to missing configuration")
 		}
 
-		if _, ok := viper.Get("vaultguard.listen_address").(string); !ok {
-			return errors.New("listen_address has to be of type string")
-		}
-		addr = viper.Get("vaultguard.listen_address").(string)
-		if _, ok := viper.Get("vaultguard.listen_port").(string); !ok {
-			return errors.New("listen_port has to be of type string")
-		}
-		port = viper.Get("vaultguard.listen_port").(string)
+		addr = viper.GetString("app.vaultguard.listen_address")
+		// if _, ok := viper.Get("app.vaultguard.listen_port").(string); !ok {
+		// 	return errors.New("listen_port has to be of type string")
+		// }
+		port = viper.GetString("app.vaultguard.listen_port")
 		sConf := listener.Config{
 			Address: addr,
 			Port:    port,

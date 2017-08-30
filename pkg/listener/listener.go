@@ -36,7 +36,7 @@ func Entrypoint(srvConfig Config) error {
 	return nil
 }
 
-// run starts all long running threads and communication chanels
+// run starts all long running threads and communication channels
 func run(srvConfig Config) {
 
 	// create a context that we can cancel
@@ -45,7 +45,7 @@ func run(srvConfig Config) {
 
 	wg := &sync.WaitGroup{}
 
-	// os signal handler
+	// step: setup OS signal handler
 	if debugListenerPtr {
 		log.Println("*** debug: run: listening for OS signals on a channel")
 	}
@@ -62,6 +62,7 @@ func run(srvConfig Config) {
 	// step: start vaultInit worker
 	if debugListenerPtr {
 		log.Println("*** debug: run: starting the vaultInit subroutine")
+		vaultg.PropagateDebug(debugListenerPtr)
 	}
 	var vgconf vaultg.GuardConfig
 	if err := vgconf.New(); err != nil {
@@ -74,6 +75,7 @@ func run(srvConfig Config) {
 	// step: start vaultUnseal worker
 	if debugListenerPtr {
 		log.Println("*** debug: run: starting the vaultUnseal subroutine")
+		vaultg.PropagateDebug(debugListenerPtr)
 	}
 	var vgconf02 vaultg.GuardConfig
 	if err := vgconf02.New(); err != nil {
@@ -86,7 +88,7 @@ func run(srvConfig Config) {
 	// step: long running wait
 	select {
 	case sig := <-osStopCh:
-		log.Printf("run: received termination signal %v, asking all goroutines to stop.", sig)
+		log.Printf("run: received termination signal ( %v ), asking all goroutines to stop.", sig)
 		// send shutdown to all goroutines
 		cancel()
 
