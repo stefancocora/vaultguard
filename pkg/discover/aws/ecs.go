@@ -98,7 +98,7 @@ func (ec AwsEcsConf) listTaskDef() ([]string, error) {
 	}
 	if dbgEcsPkg {
 		for res := range results.TaskArns {
-			log.Printf("ecs: found task arn: %#v", *results.TaskArns[res])
+			log.Printf("ecs: discovered task ARN: %#v", *results.TaskArns[res])
 		}
 	}
 
@@ -205,17 +205,21 @@ func (ec AwsEcsConf) describeTasks(td []string) ([]string, []ecs.Failure, error)
 // Discover is the ecs pkg entrypoint
 func Discover(ec []AwsEcsConf) (AwsEcsDsc, error) {
 
-	// step: get task arns
 	for i := range ec {
 		if dbgEcsPkg {
 			log.Printf("ecs: listing task definitions for cluster: %v", ec[i].Cluster)
 		}
+
+		// step: get task arns
 		td, err := ec[i].listTaskDef()
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when listing task definitions: %v", err)
 			return AwsEcsDsc{}, errors.New(errm)
 		}
 
+		if dbgEcsPkg {
+			log.Printf("ecs: listing ECS instance ARNs for cluster: %v", ec[i].Cluster)
+		}
 		// step: get ECS instance arns
 		ia, iaf, err := ec[i].describeTasks(td)
 		if err != nil {
