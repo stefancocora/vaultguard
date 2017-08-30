@@ -18,9 +18,10 @@ var debugListenerPtr bool
 
 // Config is the type that is used to pass configuration to the http server
 type Config struct {
-	Address string `yaml:"listen_address" json:"listen_address"`
-	Port    string `yaml:"listen_port" json:"listen_port"`
-	Debug   bool
+	Address     string `yaml:"listen_address" json:"listen_address"`
+	Port        string `yaml:"listen_port" json:"listen_port"`
+	Debug       bool
+	DebugConfig bool
 }
 
 // Entrypoint represents the entrypoint in the server package
@@ -61,29 +62,37 @@ func run(srvConfig Config) {
 
 	// step: start vaultInit worker
 	if debugListenerPtr {
-		log.Println("*** debug: run: starting the vaultInit subroutine")
-		vaultg.PropagateDebug(debugListenerPtr)
+		vaultg.PropagateDebug(srvConfig.Debug, srvConfig.DebugConfig)
 	}
 	var vgconf vaultg.GuardConfig
 	if err := vgconf.New(); err != nil {
 		log.Printf("unable to create vaultguard configuration %v", err)
 	}
-	wg.Add(1)
 	retErrChInit := make(chan error)
-	go vaultg.RunInit(ctx, vgconf, wg, retErrChInit) // start vault Init worker
+	if vgconf.Init {
+		log.Println("*** debug: run: starting the vaultInit subroutine")
+		wg.Add(1)
+		go vaultg.RunInit(ctx, vgconf, wg, retErrChInit) // start vault Init worker
+	} else {
+		log.Printf("run: init phase is disabled in the config file: %v", vgconf.Init)
+	}
 
 	// step: start vaultUnseal worker
 	if debugListenerPtr {
-		log.Println("*** debug: run: starting the vaultUnseal subroutine")
-		vaultg.PropagateDebug(debugListenerPtr)
+		vaultg.PropagateDebug(srvConfig.Debug, srvConfig.DebugConfig)
 	}
 	var vgconf02 vaultg.GuardConfig
 	if err := vgconf02.New(); err != nil {
 		log.Printf("unable to create vaultguard configuration %v", err)
 	}
-	wg.Add(1)
 	retErrChUnseal := make(chan error)
-	go vaultg.RunUnseal(ctx, vgconf, wg, retErrChUnseal) // start vault Init worker
+	if vgconf02.Unseal {
+		log.Println("*** debug: run: starting the vaultUnseal subroutine")
+		wg.Add(1)
+		go vaultg.RunUnseal(ctx, vgconf02, wg, retErrChUnseal) // start vault Init worker
+	} else {
+		log.Printf("run: unseal phase is disabled in the config file: %v", vgconf.Init)
+	}
 
 	// step: long running wait
 	select {

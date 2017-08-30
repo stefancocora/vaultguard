@@ -42,9 +42,10 @@ var RootCmd = &cobra.Command{
 		// }
 		port = viper.GetString("app.vaultguard.listen_port")
 		sConf := listener.Config{
-			Address: addr,
-			Port:    port,
-			Debug:   debugPtr,
+			Address:     addr,
+			Port:        port,
+			Debug:       debugPtr,
+			DebugConfig: debugConfPtr,
 		}
 		if err := listener.Entrypoint(sConf); err != nil {
 			errm := fmt.Sprintf("error in the listener entrypoint: %v", err)
@@ -63,6 +64,7 @@ func Execute() {
 }
 
 var debugPtr bool
+var debugConfPtr bool
 var cfgFilePtr string
 
 func init() {
@@ -70,6 +72,7 @@ func init() {
 	cobra.OnInitialize(initConfig)
 	// flags available to all commands and subcommands
 	RootCmd.PersistentFlags().BoolVarP(&debugPtr, "debug", "d", false, "turn on debug output")
+	RootCmd.PersistentFlags().BoolVarP(&debugConfPtr, "debugconfig", "", false, "turn on config struct debugging output")
 	RootCmd.PersistentFlags().StringVar(&cfgFilePtr, "config", "", "config file (config will be searched in /vaultguard/config.yaml:/etc/vaultguard/config.yaml:$HOME/vaultguard/config.yaml)")
 
 }

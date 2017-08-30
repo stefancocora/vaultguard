@@ -8,14 +8,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"reflect"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/spf13/viper"
+	yaml "gopkg.in/yaml.v2"
 )
 
 var dbgVaultPkg bool
+var dbgVaultConf bool
 
 // Config is a vaultguard top level config
 type Config struct {
@@ -24,13 +28,14 @@ type Config struct {
 
 // App is the vaultguard application config made up of the vault config and the vaultguard config
 type App struct {
-	VVault      `yaml:"vault" json:"vault"`
+	VConf       `yaml:"vault" json:"vault"`
 	GuardConfig `yaml:"vaultguard" json:"vaultguard"`
 }
 
-// VVault is the struct containing the various vault related config options
-type VVault struct {
-	Backends  []Backend   `yaml:"vault_backends" json:"vault_vault_backends"`
+// VConf holds the vault configuration definition
+// VConf is the struct containing the various vault related config options
+type VConf struct {
+	Backends  []Backend   `yaml:"vault_backends" json:"vault_backends"`
 	Endpoints []Endpoints `yaml:"vault_endpoints" json:"vault_endpoints"`
 	Policy    []Policy    `yaml:"vault_policies" json:"vault_policies"`
 }
@@ -48,8 +53,20 @@ type GuardConfig struct {
 
 // Endpoints holds the config for how to get to vault cluster endpoints
 type Endpoints struct {
-	Type string          `yaml:"type" json:"type"`
-	Spec json.RawMessage `yaml:"spec" json:"spec"`
+	Type  string `yaml:"type" json:"type"`
+	Specs []Spec `yaml:"spec" json:"spec"`
+}
+
+// Spec contains the overall Endpoint definition
+type Spec struct {
+	// ecs
+	Cluster string `yaml:"cluster,omitempty" json:"cluster,omitempty"`
+	Region  string `yaml:"region,omitempty" json:"region,omitempty"`
+	// url
+	URL string `yaml:"url,omitempty" json:"url,omitempty"`
+	// k8s
+	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+	Service   string `yaml:"service,omitempty" json:"service,omitempty"`
 }
 
 // Backend is a definition of a vault secret backend
@@ -65,6 +82,7 @@ type Policy struct {
 	Policy string `yaml:"policy" json:"policy"`
 }
 
+//
 // EcsSpec is the Endpoint that holds the definition of the requirements to get to a vault service running in AWS ECS
 type EcsSpec struct {
 	Cluster string `yaml:"cluster" json:"cluster"`
@@ -89,26 +107,10 @@ func (g *GuardConfig) New() error {
 	// construct the vault configuration from viper config
 	vgConf := viper.Sub("app.vaultguard")
 
-	if dbgVaultPkg {
+	if dbgVaultConf {
 		// debug field tags
-		log.Printf("***debug: vaultguard config listen_port: %#v", viper.Get("app.vaultguard.listen_port"))
-
-		log.Println("GuardConfig fields and tags")
-		t := reflect.TypeOf(*g)
-		log.Printf("***debug: Type : %v", t.Name())
-		log.Printf("***debug: Kind : %v", t.Kind())
-
-		const tagName = "yaml"
-		for i := 0; i < t.NumField(); i++ {
-			// Get the field, returns https://golang.org/pkg/reflect/#StructField
-			field := t.Field(i)
-			// Get the field tag value
-			tag := field.Tag.Get(tagName)
-			log.Printf("***debug: %d. %v (%v), tag: '%v'\n", i+1, field.Name, field.Type.Name(), tag)
-		}
-
-		log.Printf("***debug: viper.Sub : %#v", vgConf)
-		// debug field tags
+		log.Println("debug entire vaultguard config loaded with viper.Sub")
+		spew.Dump(vgConf)
 	}
 
 	// step: create vaultguard config struct from the config file
@@ -116,16 +118,18 @@ func (g *GuardConfig) New() error {
 		errm := fmt.Sprintf("unable to unmarshal vaultguard subconfig: %v", err)
 		return errors.New(errm)
 	}
-	if dbgVaultPkg {
-		log.Printf("***debug: GuardConfig: %#v", g)
+	if dbgVaultConf {
+		log.Println("debug the vaultguard part of the config")
+		spew.Dump(g)
 	}
 
 	// additional calls, since unmarshal isn't marshalling correctly the address and port
 	g.Port = viper.GetString("app.vaultguard.listen_port")
 	g.Address = viper.GetString("app.vaultguard.listen_address")
 
-	if dbgVaultPkg {
-		log.Printf("***debug: GuardConfig: %#v", g)
+	if dbgVaultConf {
+		log.Println("debug the vaultguard part of the config - viper.Sub bug")
+		spew.Dump(g)
 	}
 
 	// step:create the vault config struct from the config file
@@ -135,42 +139,42 @@ func (g *GuardConfig) New() error {
 	// log.Printf("vault_endpoints ecs: %#v", viper.Get("app.vault.vault_endpoints.type"))
 	// log.Printf("viper vault sub: %v", viper.Sub("app.vault.vault_endpoints"))
 
+	// step: decode config file into memory struct
 	//
-	var vgc Endpoints
+	var vfgc Config
 	f, errr := ioutil.ReadFile(viper.ConfigFileUsed())
 	if errr != nil {
 		return errr
 	}
-	dec := json.NewDecoder(bytes.NewReader(f))
-	if err := dec.Decode(&vgc); err != nil {
-		return errors.New("error decoding config file")
+
+	format := strings.TrimPrefix(filepath.Ext(viper.ConfigFileUsed()), ".")
+	if dbgVaultConf {
+		log.Printf("format of config file: %s", format)
 	}
 
-	log.Printf("endpoints: %v", vgc)
-
-	var ecsendp EcsSpec
-	var k8sendp K8sSpec
-	var urlendp URLSpec
-	switch vgc.Type {
-	case "ecs":
-		if err := json.Unmarshal([]byte(vgc.Spec), &ecsendp); err != nil {
-			return errors.New("error: unable to decode the VaultEcs Spec")
+	switch format {
+	case "json":
+		decj := json.NewDecoder(bytes.NewReader(f))
+		if err := decj.Decode(&vfgc); err != nil {
+			errm := fmt.Sprintf("error decoding config file: %v", err)
+			return errors.New(errm)
 		}
-	case "k8s":
-		if err := json.Unmarshal([]byte(vgc.Spec), &k8sendp); err != nil {
-			return errors.New("error: unable to decode the K8sSpec Spec")
-		}
-	case "url":
-		if err := json.Unmarshal([]byte(vgc.Spec), &urlendp); err != nil {
-			return errors.New("error: unable to decode the URLSpec Spec")
+	case "yml":
+		fallthrough
+	case "yaml":
+		if err := yaml.Unmarshal(f, vfgc); err != nil {
+			errm := fmt.Sprintf("unable to unmarshal yaml config file: %v", err)
+			return errors.New(errm)
 		}
 	default:
-		return errors.New("error: bad config file for type of vault endpoint")
+		errm := fmt.Sprintf("unsupported config file format: %s", format)
+		return errors.New(errm)
 	}
 
-	log.Printf("ecs config: %v", ecsendp)
-	log.Printf("k8s config: %v", k8sendp)
-	log.Printf("url config: %v", urlendp)
+	if dbgVaultConf {
+		log.Println("entire config decoded")
+		spew.Dump(vfgc)
+	}
 
 	return nil
 
@@ -229,6 +233,7 @@ func RunUnseal(ctx context.Context, vgc GuardConfig, wg *sync.WaitGroup, retErrC
 }
 
 // PropagateDebug propagates the debug flag from main into this pkg, when explicitly called
-func PropagateDebug(dbg bool) {
+func PropagateDebug(dbg bool, confDbg bool) {
 	dbgVaultPkg = dbg
+	dbgVaultConf = confDbg
 }
