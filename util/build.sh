@@ -44,8 +44,7 @@ function build {
   local APPENVIRONMENT=$1
   local APPVERSIONPRERELEASE="dev"
   clear
-  # echo $PATH
-  echo "--- start build"
+  printf "\n=== start build\n"
   date
 
   # GIT_COMMIT=${GIT_COMMIT:0:7}
