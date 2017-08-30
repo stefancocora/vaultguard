@@ -2,7 +2,6 @@ package listener
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -184,13 +183,27 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) ([]string, error) {
 
 	// step: discover vault servers: pass all ECS endpoints to the ecs pkg for processing
 	ecs.PropagateDebug(debugListenerPtr, debugListenerConf)
-	dsc, err := ecs.Discover(ecscl)
-	if err != nil {
-		errm := fmt.Sprintf("listener: error from the ECS cluster discovery: %v", err)
-		return []string{}, errors.New(errm)
+	dsc := ecs.Discover(ecscl)
+
+	// step: log partial failures
+	var rdv []string
+	for i := range dsc {
+
+		if len(dsc[i].Fault) != 0 {
+			for j := range dsc[i].Fault {
+				errm := fmt.Sprintf("listener: cluster discovery error (%v) for cluster: %v", dsc[i].Fault[j], dsc[i].Cluster)
+				log.Printf(errm)
+			}
+			// step: return successful discoveries
+		} else {
+			for j := range dsc[i].VaultServers {
+				ts := fmt.Sprintf("https://%v:%v", dsc[i].VaultServers[j].IP, dsc[i].VaultServers[j].Port)
+				rdv = append(rdv, ts)
+			}
+		}
 	}
 
-	return dsc, nil
+	return rdv, nil
 
 }
 

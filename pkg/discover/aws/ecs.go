@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -39,6 +40,7 @@ type AwsEcsErr interface {
 type AwsEcsOutput struct {
 	Cluster      string
 	VaultServers []VaultSrvOutput
+	Fault        []error
 }
 
 // VaultSrvOutput holds the definition of a single vault endpoint
@@ -507,13 +509,14 @@ func (ec AwsEcsInput) describeEC2Inst(iid []string) ([]descEC2InstOutput, error)
 //
 // OUT
 //
-// []string of formatted vault endpoints
+// []AwsEcsOutput of formatted vault endpoints and cluster names
 //
-func Discover(ec []AwsEcsInput) ([]string, error) {
+func Discover(ec []AwsEcsInput) []AwsEcsOutput {
 
-	var dve AwsEcsOutput
+	var rdve []AwsEcsOutput
 
 	for i := range ec {
+		var dve AwsEcsOutput
 		log.Printf("ecs: listing task definitions for cluster: %v", ec[i].Cluster)
 		dve.Cluster = ec[i].Cluster
 
@@ -521,7 +524,7 @@ func Discover(ec []AwsEcsInput) ([]string, error) {
 		td, err := ec[i].listTaskDef()
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when listing task definitions: %v", err)
-			return []string{}, errors.New(errm)
+			dve.Fault = append(dve.Fault, errors.New(errm))
 		}
 
 		if dbgEcsPkg {
@@ -531,7 +534,7 @@ func Discover(ec []AwsEcsInput) ([]string, error) {
 		ia, iaf, err := ec[i].describeTasks(td)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing instance ARNs: %v", err)
-			return []string{}, errors.New(errm)
+			dve.Fault = append(dve.Fault, errors.New(errm))
 		}
 		if len(iaf) != 0 {
 			log.Printf("ecs: partial failures when running DescribeTasks(): %v", iaf)
@@ -545,7 +548,7 @@ func Discover(ec []AwsEcsInput) ([]string, error) {
 		iid, iipsf, err := ec[i].describeContInst(tia)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing container instances: %v", err)
-			return []string{}, errors.New(errm)
+			dve.Fault = append(dve.Fault, errors.New(errm))
 		}
 		if len(iipsf) != 0 {
 			log.Printf("ecs: partial failures when running DescribeContainerInstances(): %v", iipsf)
@@ -559,19 +562,18 @@ func Discover(ec []AwsEcsInput) ([]string, error) {
 		iprivi, err := ec[i].describeEC2Inst(tiid)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing ec2 instances: %v", err)
-			return []string{}, errors.New(errm)
+			dve.Fault = append(dve.Fault, errors.New(errm))
 		}
 
-		var dve []string
 		for i := range iprivi {
-			var ts string
-			ts = iprivi[i].iprivip
+			var ts VaultSrvOutput
+			ts.IP = iprivi[i].iprivip
 			for j := range iid {
 				if iprivi[i].iid == iid[j].iid {
 					for k := range ia {
 						if iid[j].iarn == ia[k].iarn {
-							ts = fmt.Sprintf("https://%v:%v", ts, ia[k].port)
-							dve = append(dve, ts)
+							ts.Port = strconv.FormatInt(ia[k].port, 10)
+							dve.VaultServers = append(dve.VaultServers, ts)
 						}
 					}
 				}
@@ -580,12 +582,12 @@ func Discover(ec []AwsEcsInput) ([]string, error) {
 
 		// this should return the discovered vault servers
 		if dbgEcsPkg {
-			log.Printf("all discovered vault endpoints: %#v", dve)
+			log.Printf("all discovered vault endpoints: %v", dve)
 		}
-		return dve, nil
+		rdve = append(rdve, dve)
 	}
 
-	return []string{}, nil
+	return rdve
 }
 
 // PropagateDebug propagates the debug flag from main into this pkg, when explicitly called
