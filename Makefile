@@ -19,8 +19,7 @@ MAKEFLAGS += --no-builtin-rules
 ELF_NAME = vaultguard
 ELF_APPENVIRONMENT = dev
 build_production: ELF_APPENVIRONMENT = production
-ELF_VERSION = '0.0.3' # build script adds the v in front of version as semver.org
-# VERSION ?= latest
+ELF_VERSION = '0.0.4' # build script adds the v in front of the semver.org version
 
 CONTAINER_IMAGENAME = 'stefancocora/$(ELF_NAME)'
 CONTAINER_VERSION = v$(ELF_VERSION)
