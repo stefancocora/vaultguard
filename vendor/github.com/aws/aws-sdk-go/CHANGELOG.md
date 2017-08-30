@@ -1,3 +1,39 @@
+Release v1.10.33 (2017-08-25)
+===
+
+### Service Client Updates
+* `service/cloudformation`: Updates service API and documentation
+  * Rollback triggers enable you to have AWS CloudFormation monitor the state of your application during stack creation and updating, and to roll back that operation if the application breaches the threshold of any of the alarms you've specified.
+* `service/gamelift`: Updates service API
+  * Update spelling of MatchmakingTicket status values for internal consistency.
+* `service/rds`: Updates service API and documentation
+  * Option group options now contain additional properties that identify requirements for certain options. Check these properties to determine if your DB instance must be in a VPC or have auto minor upgrade turned on before you can use an option. Check to see if you can downgrade the version of an option after you have installed it.
+
+### SDK Enhancements
+* `example/service/ec2`: Add EC2 list instances example ([#1492](https://github.com/aws/aws-sdk-go/pull/1492))
+
+Release v1.10.32 (2017-08-25)
+===
+
+### Service Client Updates
+* `service/rekognition`: Updates service API, documentation, and examples
+  * Update the enum value of LandmarkType and GenderType to be consistent with service response
+
+Release v1.10.31 (2017-08-23)
+===
+
+### Service Client Updates
+* `service/appstream`: Updates service documentation
+  * Documentation updates for appstream
+* `aws/endpoints`: Updated Regions and Endpoints metadata.
+
+Release v1.10.30 (2017-08-22)
+===
+
+### Service Client Updates
+* `service/ssm`: Updates service API and documentation
+  * Changes to associations in Systems Manager State Manager can now be recorded. Previously, when you edited associations, you could not go back and review older association settings. Now, associations are versioned, and can be named using human-readable strings, allowing you to see a trail of association changes. You can also perform rate-based scheduling, which allows you to schedule associations more granularly.
+
 Release v1.10.29 (2017-08-21)
 ===
 
