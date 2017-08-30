@@ -200,7 +200,6 @@ func (ec AwsEcsInput) describeTasks(td []string) ([]descTaskOutput, []ecs.Failur
 	// step: prepare inputs
 	var tsk []*string
 
-	log.Println(td)
 	for i := range td {
 		tsk = append(tsk, &td[i])
 	}
@@ -370,7 +369,6 @@ func (ec AwsEcsInput) describeContInst(ia []string) ([]descECSInstOutput, []ecs.
 		// step: return instance ids
 	} else {
 		for res := range result.ContainerInstances {
-			log.Printf("ecs: discovered container instance ID: %#v", *result.ContainerInstances[res].Ec2InstanceId)
 			var t descECSInstOutput
 			t.iid = *result.ContainerInstances[res].Ec2InstanceId
 			t.iarn = *result.ContainerInstances[res].ContainerInstanceArn
@@ -501,19 +499,29 @@ func (ec AwsEcsInput) describeEC2Inst(iid []string) ([]descEC2InstOutput, error)
 	return iprivip, nil
 }
 
-// Discover is the ecs pkg entrypoint
-func Discover(ec []AwsEcsInput) (AwsEcsOutput, error) {
+// Discover is used as a way to discover vault endpoints in ECS starting from a cluster name and region
+//
+// IN
+//
+// []AwsEcsInput of cluster and region names
+//
+// OUT
+//
+// []string of formatted vault endpoints
+//
+func Discover(ec []AwsEcsInput) ([]string, error) {
+
+	var dve AwsEcsOutput
 
 	for i := range ec {
-		if dbgEcsPkg {
-			log.Printf("ecs: listing task definitions for cluster: %v", ec[i].Cluster)
-		}
+		log.Printf("ecs: listing task definitions for cluster: %v", ec[i].Cluster)
+		dve.Cluster = ec[i].Cluster
 
 		// step: get task arns
 		td, err := ec[i].listTaskDef()
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when listing task definitions: %v", err)
-			return AwsEcsOutput{}, errors.New(errm)
+			return []string{}, errors.New(errm)
 		}
 
 		if dbgEcsPkg {
@@ -523,7 +531,7 @@ func Discover(ec []AwsEcsInput) (AwsEcsOutput, error) {
 		ia, iaf, err := ec[i].describeTasks(td)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing instance ARNs: %v", err)
-			return AwsEcsOutput{}, errors.New(errm)
+			return []string{}, errors.New(errm)
 		}
 		if len(iaf) != 0 {
 			log.Printf("ecs: partial failures when running DescribeTasks(): %v", iaf)
@@ -537,7 +545,7 @@ func Discover(ec []AwsEcsInput) (AwsEcsOutput, error) {
 		iid, iipsf, err := ec[i].describeContInst(tia)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing container instances: %v", err)
-			return AwsEcsOutput{}, errors.New(errm)
+			return []string{}, errors.New(errm)
 		}
 		if len(iipsf) != 0 {
 			log.Printf("ecs: partial failures when running DescribeContainerInstances(): %v", iipsf)
@@ -551,7 +559,7 @@ func Discover(ec []AwsEcsInput) (AwsEcsOutput, error) {
 		iprivi, err := ec[i].describeEC2Inst(tiid)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing ec2 instances: %v", err)
-			return AwsEcsOutput{}, errors.New(errm)
+			return []string{}, errors.New(errm)
 		}
 
 		var dve []string
@@ -570,13 +578,14 @@ func Discover(ec []AwsEcsInput) (AwsEcsOutput, error) {
 			}
 		}
 
-		log.Printf("all discovered vault endpoints: %#v", dve)
-
-		// this should return the struct of discovered vault servers
-		return AwsEcsOutput{}, nil
+		// this should return the discovered vault servers
+		if dbgEcsPkg {
+			log.Printf("all discovered vault endpoints: %#v", dve)
+		}
+		return dve, nil
 	}
 
-	return AwsEcsOutput{}, nil
+	return []string{}, nil
 }
 
 // PropagateDebug propagates the debug flag from main into this pkg, when explicitly called

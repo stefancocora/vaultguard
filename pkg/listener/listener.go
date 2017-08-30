@@ -63,7 +63,7 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 
 	// step: create communication channels
 	// channel for discovered vault endpoints to send to init
-	var dvinitCh = make(chan []ecs.VaultSrvOutput, 1)
+	var dvinitCh = make(chan []string, 1)
 	// channel for errors that we get during init phase
 	retErrChInit := make(chan error)
 
@@ -97,7 +97,7 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 		errm := fmt.Sprintf("run: error discovering vault endpoints: %v", err)
 		log.Printf(errm)
 	}
-	dvinitCh <- dv.VaultServers
+	dvinitCh <- dv
 
 	// step: start vaultInit worker
 	if debugListenerPtr {
@@ -159,7 +159,7 @@ listenerloop:
 
 }
 
-func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsOutput, error) {
+func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) ([]string, error) {
 
 	log.Println("ecsw: running ECS discovery")
 
@@ -187,7 +187,7 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsOutput, err
 	dsc, err := ecs.Discover(ecscl)
 	if err != nil {
 		errm := fmt.Sprintf("listener: error from the ECS cluster discovery: %v", err)
-		return ecs.AwsEcsOutput{}, errors.New(errm)
+		return []string{}, errors.New(errm)
 	}
 
 	return dsc, nil
