@@ -64,34 +64,34 @@ func run(srvConfig Config) {
 	if debugListenerPtr {
 		vaultg.PropagateDebug(srvConfig.Debug, srvConfig.DebugConfig)
 	}
-	var vgconf vaultg.GuardConfig
+	var vgconf vaultg.Config
 	if err := vgconf.New(); err != nil {
 		log.Printf("unable to create vaultguard configuration %v", err)
 	}
 	retErrChInit := make(chan error)
-	if vgconf.Init {
-		log.Println("*** debug: run: starting the vaultInit subroutine")
+	if vgconf.GuardConfig.Init {
+		log.Println("*** debug: run: starting the vaultInit worker")
 		wg.Add(1)
 		go vaultg.RunInit(ctx, vgconf, wg, retErrChInit) // start vault Init worker
 	} else {
-		log.Printf("run: init phase is disabled in the config file: %v", vgconf.Init)
+		log.Printf("run: init phase is disabled in the config file: %v", vgconf.GuardConfig.Init)
 	}
 
 	// step: start vaultUnseal worker
 	if debugListenerPtr {
 		vaultg.PropagateDebug(srvConfig.Debug, srvConfig.DebugConfig)
 	}
-	var vgconf02 vaultg.GuardConfig
+	var vgconf02 vaultg.Config
 	if err := vgconf02.New(); err != nil {
 		log.Printf("unable to create vaultguard configuration %v", err)
 	}
 	retErrChUnseal := make(chan error)
-	if vgconf02.Unseal {
-		log.Println("*** debug: run: starting the vaultUnseal subroutine")
+	if vgconf02.GuardConfig.Init {
+		log.Println("*** debug: run: starting the vaultUnseal worker")
 		wg.Add(1)
 		go vaultg.RunUnseal(ctx, vgconf02, wg, retErrChUnseal) // start vault Init worker
 	} else {
-		log.Printf("run: unseal phase is disabled in the config file: %v", vgconf.Init)
+		log.Printf("run: unseal phase is disabled in the config file: %v", vgconf.GuardConfig.Init)
 	}
 
 	// step: long running wait

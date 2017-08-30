@@ -102,46 +102,8 @@ type K8sSpec struct {
 
 // New sets up the Config struct from the configuration file.
 // It reads from the configuration all the vaultguard config options.
-func (g *GuardConfig) New() error {
+func (g *Config) New() error {
 
-	// construct the vault configuration from viper config
-	vgConf := viper.Sub("app.vaultguard")
-
-	if dbgVaultConf {
-		// debug field tags
-		log.Println("debug entire vaultguard config loaded with viper.Sub")
-		spew.Dump(vgConf)
-	}
-
-	// step: create vaultguard config struct from the config file
-	if err := vgConf.Unmarshal(g); err != nil {
-		errm := fmt.Sprintf("unable to unmarshal vaultguard subconfig: %v", err)
-		return errors.New(errm)
-	}
-	if dbgVaultConf {
-		log.Println("debug the vaultguard part of the config")
-		spew.Dump(g)
-	}
-
-	// additional calls, since unmarshal isn't marshalling correctly the address and port
-	g.Port = viper.GetString("app.vaultguard.listen_port")
-	g.Address = viper.GetString("app.vaultguard.listen_address")
-
-	if dbgVaultConf {
-		log.Println("debug the vaultguard part of the config - viper.Sub bug")
-		spew.Dump(g)
-	}
-
-	// step:create the vault config struct from the config file
-	// log.Printf("vault_addrs: %#v", viper.Get("app.vault.vault_addrs"))
-	// log.Printf("vault_backends: %#v", viper.Get("app.vault.vault_backends"))
-	// log.Printf("vault_endpoints: %v", viper.Get("app.vault.vault_endpoints"))
-	// log.Printf("vault_endpoints ecs: %#v", viper.Get("app.vault.vault_endpoints.type"))
-	// log.Printf("viper vault sub: %v", viper.Sub("app.vault.vault_endpoints"))
-
-	// step: decode config file into memory struct
-	//
-	var vfgc Config
 	f, errr := ioutil.ReadFile(viper.ConfigFileUsed())
 	if errr != nil {
 		return errr
@@ -155,14 +117,14 @@ func (g *GuardConfig) New() error {
 	switch format {
 	case "json":
 		decj := json.NewDecoder(bytes.NewReader(f))
-		if err := decj.Decode(&vfgc); err != nil {
+		if err := decj.Decode(&g); err != nil {
 			errm := fmt.Sprintf("error decoding config file: %v", err)
 			return errors.New(errm)
 		}
 	case "yml":
 		fallthrough
 	case "yaml":
-		if err := yaml.Unmarshal(f, vfgc); err != nil {
+		if err := yaml.Unmarshal(f, g); err != nil {
 			errm := fmt.Sprintf("unable to unmarshal yaml config file: %v", err)
 			return errors.New(errm)
 		}
@@ -173,7 +135,7 @@ func (g *GuardConfig) New() error {
 
 	if dbgVaultConf {
 		log.Println("entire config decoded")
-		spew.Dump(vfgc)
+		spew.Dump(g)
 	}
 
 	return nil
@@ -181,7 +143,7 @@ func (g *GuardConfig) New() error {
 }
 
 // RunInit func
-func RunInit(ctx context.Context, vgc GuardConfig, wg *sync.WaitGroup, retErrCh chan error) error {
+func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error) error {
 
 	defer wg.Done()
 
@@ -207,7 +169,7 @@ func RunInit(ctx context.Context, vgc GuardConfig, wg *sync.WaitGroup, retErrCh 
 }
 
 // RunUnseal is unsealing the vault
-func RunUnseal(ctx context.Context, vgc GuardConfig, wg *sync.WaitGroup, retErrCh chan error) error {
+func RunUnseal(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error) error {
 
 	defer wg.Done()
 
