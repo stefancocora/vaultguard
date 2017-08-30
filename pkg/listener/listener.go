@@ -174,10 +174,9 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsDsc, error)
 		}
 	}
 	if debugListenerPtr {
-		for ve := range vgconf.Endpoints {
-			log.Printf("vec Specs variable content: %v", vgconf.Endpoints[ve].Specs)
-			log.Printf("ecscl variable content: %v", ecscl)
-		}
+		// for ve := range vgconf.Endpoints {
+		log.Printf("ecscl variable content: %v", ecscl)
+		// }
 		if debugListenerConf {
 			spew.Dump(ecscl)
 		}
@@ -185,7 +184,7 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsDsc, error)
 
 	// step: discover vault servers: pass all ECS endpoints to the ecs pkg for processing
 	ecs.PropagateDebug(debugListenerPtr, debugListenerConf)
-	dsc, err := ecs.EntryPoint(ecscl)
+	dsc, err := ecs.Discover(ecscl)
 	if err != nil {
 		errm := fmt.Sprintf("listener: error from the ECS cluster discovery: %v", err)
 		return ecs.AwsEcsDsc{}, errors.New(errm)
