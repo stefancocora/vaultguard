@@ -58,11 +58,17 @@ func initConfig() {
 		// Search config in home directory with name ".cobra" (without extension).
 		homed := fmt.Sprintf("%v/vaultguard", home)
 		viper.AddConfigPath(homed)
-		viper.SetConfigName("config.yaml")
+		viper.SetConfigName("config")
 	}
 
 	if err := viper.ReadInConfig(); err != nil {
 		fmt.Println("Can't read config:", err)
 		os.Exit(1)
+	}
+
+	if debugPtr {
+		log.Printf("config file being used: %v", viper.ConfigFileUsed())
+		log.Printf("config content vaultguard: %v", viper.Get("vaultguard"))
+		log.Printf("config content vault: %v", viper.Get("vault"))
 	}
 }
