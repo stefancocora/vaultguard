@@ -142,10 +142,22 @@ func (g *Config) New() error {
 
 }
 
+// WorkerID is used to assign goroutine workers a notion of identity, useful when logging
+type WorkerID struct {
+	Name string
+	Type string
+	ID   int
+}
+
 // RunInit func
-func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error) error {
+func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, dvCh chan []string, id WorkerID) error {
 
 	defer wg.Done()
+	defer log.Printf("%v: worker shutdown complete", id)
+
+	var dv []string
+	dv = <-dvCh
+	log.Printf("%v: received discovered vault endpoints: %v", id, dv)
 
 	// fake work
 	ticker := time.NewTicker(5 * time.Second)
@@ -156,22 +168,23 @@ func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("vaultInit: caller has asked us to stop processing work; shutting down.")
+			log.Printf("%v: caller has asked us to stop processing work; shutting down.", id)
 			return nil
 		// case <-timeout:
-		// 	errm := fmt.Sprintf("vaultInit: timeout while receiving response from the vault server")
+		// 	errm := fmt.Sprintf("%v: timeout while receiving response from the vault server")
 		// 	return errors.New(errm)
 		case t := <-ticker.C:
 			// do some work
-			fmt.Printf("vaultInit: working - %s\n", t.UTC().Format("20060102-150405.000000000"))
+			fmt.Printf("%v: working - %s\n", id, t.UTC().Format("20060102-150405.000000000"))
 		}
 	}
 }
 
 // RunUnseal is unsealing the vault
-func RunUnseal(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error) error {
+func RunUnseal(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, id WorkerID) error {
 
 	defer wg.Done()
+	defer log.Printf("%v: worker shutdown complete", id)
 
 	// fake work
 	ticker := time.NewTicker(5 * time.Second)
@@ -182,14 +195,14 @@ func RunUnseal(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh cha
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("vaultUnseal: caller has asked us to stop processing work; shutting down.")
+			log.Printf("%v: caller has asked us to stop processing work; shutting down.", id)
 			return nil
 		// case <-timeout:
-		// 	errm := fmt.Sprintf("vaultUnseal: timeout while receiving response from the vault server")
+		// 	errm := fmt.Sprintf("%v: timeout while receiving response from the vault server")
 		// 	return errors.New(errm)
 		case t := <-ticker.C:
 			// do some work
-			fmt.Printf("vaultUnseal: working - %s\n", t.UTC().Format("20060102-150405.000000000"))
+			fmt.Printf("%v: working - %s\n", id, t.UTC().Format("20060102-150405.000000000"))
 		}
 	}
 }

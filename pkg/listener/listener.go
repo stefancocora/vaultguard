@@ -2,6 +2,8 @@ package listener
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,11 +12,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
+	ecs "github.com/stefancocora/vaultguard/pkg/discover/aws"
 	"github.com/stefancocora/vaultguard/pkg/server"
 	vaultg "github.com/stefancocora/vaultguard/pkg/vault"
 )
 
 var debugListenerPtr bool
+var debugListenerConf bool
 
 // DbgConfig is the type that is used to pass configuration to the http server
 type DbgConfig struct {
@@ -22,9 +27,17 @@ type DbgConfig struct {
 	DebugConfig bool
 }
 
+// workerID is used to assign goroutine workers a notion of identity, useful when logging
+type workerID struct {
+	Name string
+	Type string
+	ID   int
+}
+
 // Entrypoint represents the entrypoint in the server package
 func Entrypoint(srvConfig DbgConfig) error {
 	debugListenerPtr = srvConfig.Debug
+	debugListenerConf = srvConfig.DebugConfig
 
 	if debugListenerPtr {
 		log.Printf("received config: %#v", srvConfig)
@@ -37,6 +50,7 @@ func Entrypoint(srvConfig DbgConfig) error {
 		log.Printf("unable to create vaultguard configuration %v", err)
 	}
 
+	// step: launch long running daemon and additional workers
 	run(srvConfig, vgconf)
 
 	return nil
@@ -45,7 +59,15 @@ func Entrypoint(srvConfig DbgConfig) error {
 // run starts all long running threads and communication channels
 func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 
-	// create a context that we can cancel
+	defer log.Println("run: shutdown complete")
+
+	// step: create communication channels
+	// channel for discovered vault endpoints to send to init
+	var dvinitCh = make(chan []string, 1)
+	// channel for errors that we get during init phase
+	retErrChInit := make(chan error)
+
+	// step: create a context that we can cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -53,31 +75,44 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 
 	// step: setup OS signal handler
 	if debugListenerPtr {
-		log.Println("*** debug: run: listening for OS signals on a channel")
+		log.Println("run: listening for OS signals")
 	}
 	osStopCh := make(chan os.Signal, 1)
 	signal.Notify(osStopCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
 
 	// step: start the HTTP server
-	if debugListenerPtr {
-		log.Println("*** debug: run: starting the httpSrv ")
-	}
+	log.Println("run: starting the HTTPSrv")
 	wg.Add(1)
-	go startListen(ctx, srvConfig, vgconf, wg)
+	id := workerID{
+		Name: "httpSrv",
+		Type: "HTTPSrv",
+		ID:   1,
+	}
+	go runHTTPSrv(ctx, srvConfig, vgconf, wg, id)
+
+	// step: discover vault servers
+	log.Println("run: starting the ecsDsc worker")
+	dv, err := runEcsDsc(srvConfig, vgconf)
+	if err != nil {
+		errm := fmt.Sprintf("run: error discovering vault endpoints: %v", err)
+		log.Printf(errm)
+	}
+	dvinitCh <- dv.VaultServers
 
 	// step: start vaultInit worker
 	if debugListenerPtr {
 		vaultg.PropagateDebug(srvConfig.Debug, srvConfig.DebugConfig)
 	}
-	// var vgconf vaultg.Config
-	// if err := vgconf.New(); err != nil {
-	// 	log.Printf("unable to create vaultguard configuration %v", err)
-	// }
-	retErrChInit := make(chan error)
 	if vgconf.GuardConfig.Init {
-		log.Println("*** debug: run: starting the vaultInit worker")
+		log.Println("run: starting the vaultInit worker")
 		wg.Add(1)
-		go vaultg.RunInit(ctx, vgconf, wg, retErrChInit) // start vault Init worker
+
+		id := vaultg.WorkerID{
+			Name: "vaultInit",
+			Type: "init",
+			ID:   1,
+		}
+		go vaultg.RunInit(ctx, vgconf, wg, retErrChInit, dvinitCh, id) // start vault Init worker
 	} else {
 		log.Printf("run: init phase is disabled in the config file: %v", vgconf.GuardConfig.Init)
 	}
@@ -88,36 +123,84 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 	}
 	retErrChUnseal := make(chan error)
 	if vgconf.GuardConfig.Init {
-		log.Println("*** debug: run: starting the vaultUnseal worker")
+		log.Println("run: starting the vaultUnseal worker")
 		wg.Add(1)
-		go vaultg.RunUnseal(ctx, vgconf, wg, retErrChUnseal) // start vault Init worker
+		id := vaultg.WorkerID{
+			Name: "vaultUnseal",
+			Type: "unseal",
+			ID:   1,
+		}
+		go vaultg.RunUnseal(ctx, vgconf, wg, retErrChUnseal, id) // start vault Init worker
 	} else {
 		log.Printf("run: unseal phase is disabled in the config file: %v", vgconf.GuardConfig.Init)
 	}
 
-	// step: long running wait
-	select {
-	case sig := <-osStopCh:
-		log.Printf("run: received termination signal ( %v ), asking all goroutines to stop.", sig)
-		// send shutdown to all goroutines
-		cancel()
+	// step: long running process
+listenerloop:
+	for {
+		select {
+		case sig := <-osStopCh:
+			log.Printf("run: received termination signal ( %v ), asking all goroutines to stop.", sig)
+			// send shutdown to all goroutines
+			cancel()
 
-		// step: wait for all goroutines to stop
-		wg.Wait()
-		log.Println("run: all goroutines have stopped, terminating.")
-	case err := <-retErrChUnseal:
-		log.Printf("run: error received from the vaultUnseal worker: %v", err)
-	case err := <-retErrChInit:
-		log.Printf("run: error received from the vaultInit worker: %v", err)
+			// step: wait for all goroutines to stop
+			wg.Wait()
+			log.Println("run: all goroutines have stopped, terminating.")
+			break listenerloop
+			// return
+		case err := <-retErrChUnseal:
+			log.Printf("run: error received from the vaultUnseal worker: %v", err)
+		case err := <-retErrChInit:
+			log.Printf("run: error received from the vaultInit worker: %v", err)
+			// ECS channels
+		}
 	}
 
-	return
 }
 
-// startListen starts the HTTP server
-func startListen(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config, wg *sync.WaitGroup) {
+func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsDsc, error) {
+
+	log.Println("ecsDsc: running ECS discovery")
+
+	// step: discover vault servers: extract type:ECS vault endpoints
+	var ecscl []ecs.AwsEcsConf
+	for ve := range vgconf.Endpoints {
+		for ves := range vgconf.Endpoints[ve].Specs {
+			var ae ecs.AwsEcsConf
+			ae.Region = vgconf.Endpoints[ve].Specs[ves].Region
+			ae.Cluster = vgconf.Endpoints[ve].Specs[ves].Cluster
+			ecscl = append(ecscl, ae)
+		}
+	}
+	if debugListenerPtr {
+		for ve := range vgconf.Endpoints {
+			log.Printf("vec Specs variable content: %v", vgconf.Endpoints[ve].Specs)
+			log.Printf("ecscl variable content: %v", ecscl)
+		}
+		if debugListenerConf {
+			spew.Dump(ecscl)
+		}
+	}
+
+	// step: discover vault servers: pass all ECS endpoints to the ecs pkg for processing
+	ecs.PropagateDebug(debugListenerPtr, debugListenerConf)
+	dsc, err := ecs.EntryPoint(ecscl)
+	if err != nil {
+		errm := fmt.Sprintf("listener: error from the ECS cluster discovery: %v", err)
+		return ecs.AwsEcsDsc{}, errors.New(errm)
+	}
+
+	return dsc, nil
+
+}
+
+// runHTTPSrv starts the HTTP server
+func runHTTPSrv(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config, wg *sync.WaitGroup, id workerID) {
 
 	defer wg.Done()
+	defer log.Printf("%v: gracefully stopped.", id)
+
 	addr := vaultg.Address + ":" + vaultg.Port
 	logger := log.New(os.Stdout, "", log.Ldate|log.Lshortfile)
 
@@ -127,10 +210,10 @@ func startListen(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config,
 	}
 
 	go func() {
-		logger.Printf("httpSrv: server is listening on %v", hs.Addr)
+		logger.Printf("%v: server is listening on %v", id, hs.Addr)
 
 		if err := hs.ListenAndServe(); err != nil {
-			logger.Printf("httpSrv: received an error: %v", err)
+			logger.Printf("%v: received an error: %v", id, err)
 		}
 	}()
 
@@ -139,7 +222,7 @@ func startListen(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config,
 		select {
 		case <-ctx.Done():
 			if debugListenerPtr {
-				log.Println("httpSrv: caller has asked us to stop processing work; gracefully shutting down.")
+				log.Printf("%v: caller has asked us to stop processing work; gracefully shutting down.", id)
 			}
 			// shut down gracefully, but wait no longer than 5 seconds before halting
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -148,9 +231,6 @@ func startListen(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config,
 			// ignore error since it will be "Err shutting down server : context canceled"
 			hs.Shutdown(shutdownCtx)
 
-			if debugListenerPtr {
-				log.Println("httpSrv: gracefully stopped.")
-			}
 			return
 		}
 	}
