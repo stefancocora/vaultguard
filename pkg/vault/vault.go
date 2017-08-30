@@ -16,6 +16,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/spf13/viper"
 	yaml "gopkg.in/yaml.v2"
+	ecs "github.com/stefancocora/vaultguard/pkg/discover/aws"
 )
 
 var dbgVaultPkg bool
@@ -150,12 +151,12 @@ type WorkerID struct {
 }
 
 // RunInit func
-func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, dvCh chan []string, id WorkerID) error {
+func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, dvCh chan []ecs.VaultSrvOutput, id WorkerID) error {
 
 	defer wg.Done()
 	defer log.Printf("%v: worker shutdown complete", id)
 
-	var dv []string
+	var dv []ecs.VaultSrvOutput
 	dv = <-dvCh
 	log.Printf("%v: received discovered vault endpoints: %v", id, dv)
 
