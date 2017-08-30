@@ -60,12 +60,6 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 
 	defer log.Println("run: shutdown complete")
 
-	// step: create communication channels
-	// channel for discovered vault endpoints to send to init
-	var dvinitCh = make(chan []string, 1)
-	// channel for errors that we get during init phase
-	retErrChInit := make(chan error)
-
 	// step: create a context that we can cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -90,12 +84,13 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 	go runHTTPSrv(ctx, srvConfig, vgconf, wg, id)
 
 	// step: discover vault servers
+	// channel for discovered vault endpoints to send to init
+	var dvinitCh = make(chan map[string][]string, 1)
+	// channel for errors that we get during init phase
+	retErrChInit := make(chan error)
+
 	log.Println("run: starting the ecsDsc worker")
-	dv, err := runEcsDsc(srvConfig, vgconf)
-	if err != nil {
-		errm := fmt.Sprintf("run: error discovering vault endpoints: %v", err)
-		log.Printf(errm)
-	}
+	dv := runEcsDsc(srvConfig, vgconf)
 	dvinitCh <- dv
 
 	// step: start vaultInit worker
@@ -158,7 +153,7 @@ listenerloop:
 
 }
 
-func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) ([]string, error) {
+func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) map[string][]string {
 
 	log.Println("ecsw: running ECS discovery")
 
@@ -186,7 +181,8 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) ([]string, error) {
 	dsc := ecs.Discover(ecscl)
 
 	// step: log partial failures
-	var rdv []string
+	rdv := make(map[string][]string)
+	var dvs []string
 	for i := range dsc {
 
 		if len(dsc[i].Fault) != 0 {
@@ -198,12 +194,13 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) ([]string, error) {
 		} else {
 			for j := range dsc[i].VaultServers {
 				ts := fmt.Sprintf("https://%v:%v", dsc[i].VaultServers[j].IP, dsc[i].VaultServers[j].Port)
-				rdv = append(rdv, ts)
+				dvs = append(dvs, ts)
 			}
+			rdv[dsc[i].Cluster] = dvs
 		}
 	}
 
-	return rdv, nil
+	return rdv
 
 }
 

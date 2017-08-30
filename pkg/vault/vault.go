@@ -150,12 +150,12 @@ type WorkerID struct {
 }
 
 // RunInit func
-func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, dvCh chan []string, id WorkerID) error {
+func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, dvCh chan map[string][]string, id WorkerID) error {
 
 	defer wg.Done()
 	defer log.Printf("%v%v: worker shutdown complete", id.Name, id.ID)
 
-	var dv []string
+	dv := make(map[string][]string)
 	dv = <-dvCh
 	log.Printf("%v%v: received discovered vault endpoints: %v", id.Name, id.ID, dv)
 
