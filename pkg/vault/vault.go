@@ -15,8 +15,8 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/spf13/viper"
-	yaml "gopkg.in/yaml.v2"
 	ecs "github.com/stefancocora/vaultguard/pkg/discover/aws"
+	yaml "gopkg.in/yaml.v2"
 )
 
 var dbgVaultPkg bool
@@ -154,11 +154,11 @@ type WorkerID struct {
 func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, dvCh chan []ecs.VaultSrvOutput, id WorkerID) error {
 
 	defer wg.Done()
-	defer log.Printf("%v: worker shutdown complete", id)
+	defer log.Printf("%v%v: worker shutdown complete", id.Name, id.ID)
 
 	var dv []ecs.VaultSrvOutput
 	dv = <-dvCh
-	log.Printf("%v: received discovered vault endpoints: %v", id, dv)
+	log.Printf("%v%v: received discovered vault endpoints: %v", id.Name, id.ID, dv)
 
 	// fake work
 	ticker := time.NewTicker(5 * time.Second)
@@ -169,14 +169,14 @@ func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("%v: caller has asked us to stop processing work; shutting down.", id)
+			log.Printf("%v%v: caller has asked us to stop processing work; shutting down.", id.Name, id.ID)
 			return nil
 		// case <-timeout:
 		// 	errm := fmt.Sprintf("%v: timeout while receiving response from the vault server")
 		// 	return errors.New(errm)
 		case t := <-ticker.C:
 			// do some work
-			fmt.Printf("%v: working - %s\n", id, t.UTC().Format("20060102-150405.000000000"))
+			fmt.Printf("%v%v: working - %s\n", id.Name, id.ID, t.UTC().Format("20060102-150405.000000000"))
 		}
 	}
 }
@@ -185,7 +185,7 @@ func RunInit(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan 
 func RunUnseal(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh chan error, id WorkerID) error {
 
 	defer wg.Done()
-	defer log.Printf("%v: worker shutdown complete", id)
+	defer log.Printf("%v%v: worker shutdown complete", id.Name, id.ID)
 
 	// fake work
 	ticker := time.NewTicker(5 * time.Second)
@@ -196,14 +196,14 @@ func RunUnseal(ctx context.Context, vgc Config, wg *sync.WaitGroup, retErrCh cha
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("%v: caller has asked us to stop processing work; shutting down.", id)
+			log.Printf("%v%v: caller has asked us to stop processing work; shutting down.", id.Name, id.ID)
 			return nil
 		// case <-timeout:
 		// 	errm := fmt.Sprintf("%v: timeout while receiving response from the vault server")
 		// 	return errors.New(errm)
 		case t := <-ticker.C:
 			// do some work
-			fmt.Printf("%v: working - %s\n", id, t.UTC().Format("20060102-150405.000000000"))
+			fmt.Printf("%v%v: working - %s\n", id.Name, id.ID, t.UTC().Format("20060102-150405.000000000"))
 		}
 	}
 }

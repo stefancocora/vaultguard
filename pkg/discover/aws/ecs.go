@@ -59,7 +59,33 @@ type dscInstPort struct {
 	Port string
 }
 
-// func (ec AwsEcsInput) listTaskDef(ctx context.Context, res chan string, err chan err) error {
+// descTaskOutput holds the definition of a discovered task
+type descTaskOutput struct {
+	iarn string
+	port int64
+}
+
+// descECSInstOutput holds the definition of a discovered ECS instance
+type descECSInstOutput struct {
+	iarn string
+	iid  string
+}
+
+// descEC2InstOutput holds the definition of a discovered EC2 instance
+type descEC2InstOutput struct {
+	iid     string
+	iprivip string
+}
+
+// listTaskDef returns the ECS task ARN
+//
+// IN
+//
+//  AwsEcsInput with a cluster and region
+//
+// OUT
+//
+//  []string == task ARNs
 func (ec AwsEcsInput) listTaskDef() ([]string, error) {
 
 	var td []string
@@ -86,7 +112,7 @@ func (ec AwsEcsInput) listTaskDef() ([]string, error) {
 		Cluster: aws.String(ec.Cluster),
 	}
 
-	results, err := ecsSvc.ListTasks(input)
+	result, err := ecsSvc.ListTasks(input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
@@ -117,15 +143,25 @@ func (ec AwsEcsInput) listTaskDef() ([]string, error) {
 		}
 	}
 	if dbgEcsPkg {
-		for res := range results.TaskArns {
-			log.Printf("ecs: discovered task ARN: %#v", *results.TaskArns[res])
+		if dbgAwsResp {
+			var temp []string
+			for i := range result.TaskArns {
+				ts := *result.TaskArns[i]
+				temp = append(temp, ts)
+			}
+			log.Printf("ecs ListTasks: %v", temp)
+		}
+		for res := range result.TaskArns {
+			log.Printf("ecs: discovered task ARN: %#v", *result.TaskArns[res])
+			td = append(td, *result.TaskArns[res])
+		}
+	} else {
+		for res := range result.TaskArns {
+			td = append(td, *result.TaskArns[res])
 		}
 	}
 
 	// return task arns
-	for res := range results.TaskArns {
-		td = append(td, *results.TaskArns[res])
-	}
 	return td, nil
 }
 
@@ -136,12 +172,12 @@ func (ec AwsEcsInput) listTaskDef() ([]string, error) {
 //  []string of ECS task definition ARNs
 //
 // OUT
-//  []string of instance ARNs
+//  []descTaskOutput of task ARNs
 //  []string of DescribeTasksOutput []*Failures
 //  error
-func (ec AwsEcsInput) describeTasks(td []string) ([]string, []ecs.Failure, error) {
+func (ec AwsEcsInput) describeTasks(td []string) ([]descTaskOutput, []ecs.Failure, error) {
 
-	var ia []string
+	var ia []descTaskOutput
 	var iaFailures []ecs.Failure
 
 	// step: create a session
@@ -155,7 +191,7 @@ func (ec AwsEcsInput) describeTasks(td []string) ([]string, []ecs.Failure, error
 	}
 	if !found {
 		errm := fmt.Sprintf("ecs: unsupported region %v", ec.Region)
-		return []string{}, []ecs.Failure{}, errors.New(errm)
+		return []descTaskOutput{}, []ecs.Failure{}, errors.New(errm)
 	}
 
 	// step: create a svc session
@@ -164,6 +200,7 @@ func (ec AwsEcsInput) describeTasks(td []string) ([]string, []ecs.Failure, error
 	// step: prepare inputs
 	var tsk []*string
 
+	log.Println(td)
 	for i := range td {
 		tsk = append(tsk, &td[i])
 	}
@@ -179,42 +216,58 @@ func (ec AwsEcsInput) describeTasks(td []string) ([]string, []ecs.Failure, error
 			switch aerr.Code() {
 			case ecs.ErrCodeServerException:
 				// fmt.Println(ecs.ErrCodeServerException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descTaskOutput{}, []ecs.Failure{}, aerr
 			case ecs.ErrCodeClientException:
 				// fmt.Println(ecs.ErrCodeClientException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descTaskOutput{}, []ecs.Failure{}, aerr
 			case ecs.ErrCodeInvalidParameterException:
 				// fmt.Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descTaskOutput{}, []ecs.Failure{}, aerr
 			case ecs.ErrCodeClusterNotFoundException:
 				// fmt.Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descTaskOutput{}, []ecs.Failure{}, aerr
 			default:
 				// fmt.Println(aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descTaskOutput{}, []ecs.Failure{}, aerr
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
 			// Message from an error.
 			// fmt.Println(err.Error())
-			return []string{}, []ecs.Failure{}, aerr
+			return []descTaskOutput{}, []ecs.Failure{}, aerr
 		}
 	}
 
 	if dbgEcsPkg {
 		if dbgAwsResp {
 			// extra debug
-			log.Printf("results: %v", result.Tasks)
+			log.Printf("ecs DescribeTasks: %v", result.Tasks)
 		}
 		for res := range result.Tasks {
 			log.Printf("ecs: discovered container instance ARN: %#v", *result.Tasks[res].ContainerInstanceArn)
+			var io descTaskOutput
+			io.iarn = *result.Tasks[res].ContainerInstanceArn
+			for i := range result.Tasks[res].Containers {
+				for j := range result.Tasks[res].Containers[i].NetworkBindings {
+					io.port = *result.Tasks[res].Containers[i].NetworkBindings[j].HostPort
+				}
+			}
+			ia = append(ia, io)
+		}
+	} else {
+		for res := range result.Tasks {
+			var io descTaskOutput
+			io.iarn = *result.Tasks[res].ContainerInstanceArn
+			for i := range result.Tasks[res].Containers {
+				for j := range result.Tasks[res].Containers[i].NetworkBindings {
+					io.port = *result.Tasks[res].Containers[i].NetworkBindings[j].HostPort
+				}
+			}
+			ia = append(ia, io)
 		}
 	}
 
 	// step: return instance ARNs
-	for res := range result.Tasks {
-		ia = append(ia, *result.Tasks[res].ContainerInstanceArn)
-	}
 	for f := range result.Failures {
 		iaFailures = append(iaFailures, *result.Failures[f])
 	}
@@ -232,13 +285,17 @@ func (ec AwsEcsInput) describeTasks(td []string) ([]string, []ecs.Failure, error
 //  []string of ECS instance ARNs
 //
 // OUT
-//  []string of instance ARNs
+//  []descECSInstanceOutput of instance ARNs
 //  []string of DescribeContainerInstances []*Failures
 //  error
-func (ec AwsEcsInput) describeContInst(ia []string) ([]string, []ecs.Failure, error) {
+func (ec AwsEcsInput) describeContInst(ia []string) ([]descECSInstOutput, []ecs.Failure, error) {
 
-	var iid []string
+	var iid []descECSInstOutput
 	var iidFailures []ecs.Failure
+
+	if dbgEcsConf {
+		log.Printf("received input: %v", ia)
+	}
 
 	// step: create a session
 	sess := session.Must(session.NewSession())
@@ -251,7 +308,7 @@ func (ec AwsEcsInput) describeContInst(ia []string) ([]string, []ecs.Failure, er
 	}
 	if !found {
 		errm := fmt.Sprintf("ecs: unsupported region %v", ec.Region)
-		return []string{}, []ecs.Failure{}, errors.New(errm)
+		return []descECSInstOutput{}, []ecs.Failure{}, errors.New(errm)
 	}
 
 	// step: create a svc session
@@ -276,42 +333,51 @@ func (ec AwsEcsInput) describeContInst(ia []string) ([]string, []ecs.Failure, er
 			switch aerr.Code() {
 			case ecs.ErrCodeServerException:
 				// fmt.Println(ecs.ErrCodeServerException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descECSInstOutput{}, []ecs.Failure{}, aerr
 			case ecs.ErrCodeClientException:
 				// fmt.Println(ecs.ErrCodeClientException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descECSInstOutput{}, []ecs.Failure{}, aerr
 			case ecs.ErrCodeInvalidParameterException:
 				// fmt.Println(ecs.ErrCodeInvalidParameterException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descECSInstOutput{}, []ecs.Failure{}, aerr
 			case ecs.ErrCodeClusterNotFoundException:
 				// fmt.Println(ecs.ErrCodeClusterNotFoundException, aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descECSInstOutput{}, []ecs.Failure{}, aerr
 			default:
 				// fmt.Println(aerr.Error())
-				return []string{}, []ecs.Failure{}, aerr
+				return []descECSInstOutput{}, []ecs.Failure{}, aerr
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
 			// Message from an error.
 			// fmt.Println(err.Error())
-			return []string{}, []ecs.Failure{}, aerr
+			return []descECSInstOutput{}, []ecs.Failure{}, aerr
 		}
 	}
 
 	if dbgEcsPkg {
 		if dbgAwsResp {
 			// extra debug
-			log.Printf("results: %v", result.ContainerInstances)
+			log.Printf("ecs DescribeContainerInstances: %v", result.ContainerInstances)
 		}
 		for res := range result.ContainerInstances {
-			log.Printf("ecs: discovered container ii: %#v", *result.ContainerInstances[res].Ec2InstanceId)
+			log.Printf("ecs: discovered container instance ID: %#v", *result.ContainerInstances[res].Ec2InstanceId)
+			var t descECSInstOutput
+			t.iid = *result.ContainerInstances[res].Ec2InstanceId
+			t.iarn = *result.ContainerInstances[res].ContainerInstanceArn
+			iid = append(iid, t)
+		}
+		// step: return instance ids
+	} else {
+		for res := range result.ContainerInstances {
+			log.Printf("ecs: discovered container instance ID: %#v", *result.ContainerInstances[res].Ec2InstanceId)
+			var t descECSInstOutput
+			t.iid = *result.ContainerInstances[res].Ec2InstanceId
+			t.iarn = *result.ContainerInstances[res].ContainerInstanceArn
+			iid = append(iid, t)
 		}
 	}
 
-	// step: return instance ids
-	for res := range result.ContainerInstances {
-		iid = append(iid, *result.ContainerInstances[res].Ec2InstanceId)
-	}
 	// partial failures test
 	if len(iidFailures) == 0 {
 		return iid, []ecs.Failure{}, nil
@@ -327,11 +393,11 @@ func (ec AwsEcsInput) describeContInst(ia []string) ([]string, []ecs.Failure, er
 //  []string of ECS instance ids
 //
 // OUT
-//  []string of instance priv ips
+//  []descEC2InstOutput of instance priv ips
 //  error
-func (ec AwsEcsInput) describeEC2Inst(iid []string) ([]string, error) {
+func (ec AwsEcsInput) describeEC2Inst(iid []string) ([]descEC2InstOutput, error) {
 
-	var iprivip []string
+	var iprivip []descEC2InstOutput
 
 	// step: create a session
 	sess := session.Must(session.NewSession())
@@ -344,7 +410,7 @@ func (ec AwsEcsInput) describeEC2Inst(iid []string) ([]string, error) {
 	}
 	if !found {
 		errm := fmt.Sprintf("ecs: unsupported region %v", ec.Region)
-		return []string{}, errors.New(errm)
+		return []descEC2InstOutput{}, errors.New(errm)
 	}
 
 	// step: create a svc session
@@ -383,22 +449,20 @@ func (ec AwsEcsInput) describeEC2Inst(iid []string) ([]string, error) {
 			switch aerr.Code() {
 			default:
 				// fmt.Println(aerr.Error())
-				return []string{}, aerr
+				return []descEC2InstOutput{}, aerr
 			}
 		} else {
 			// Print the error, cast err to awserr.Error to get the Code and
 			// Message from an error.
 			// fmt.Println(err.Error())
-			return []string{}, aerr
+			return []descEC2InstOutput{}, aerr
 		}
 	}
 
-	// log.Printf("ec2 result: %v", result)
-	log.Println(iprivip)
 	if dbgEcsPkg {
 		if dbgAwsResp {
 			// extra debug
-			log.Printf("results: %v", result.Reservations)
+			log.Printf("ec2 DescribeInstances: %v", result.Reservations)
 		}
 		for res := range result.Reservations {
 			for i := range result.Reservations[res].Instances {
@@ -406,11 +470,28 @@ func (ec AwsEcsInput) describeEC2Inst(iid []string) ([]string, error) {
 					if dbgAwsResp {
 						// extra debug
 						log.Printf("ecs: discovered container instance private ips: %#v", *result.Reservations[res].Instances[i].NetworkInterfaces[j].PrivateIpAddresses[0])
-						iprivip = append(iprivip, *result.Reservations[res].Instances[i].NetworkInterfaces[j].PrivateIpAddresses[0].PrivateIpAddress)
+						var t descEC2InstOutput
+						t.iprivip = *result.Reservations[res].Instances[i].NetworkInterfaces[j].PrivateIpAddresses[0].PrivateIpAddress
+						t.iid = *result.Reservations[res].Instances[i].InstanceId
+						iprivip = append(iprivip, t)
 					} else {
 						log.Printf("ecs: discovered container instance private ips: %#v", *result.Reservations[res].Instances[i].NetworkInterfaces[j].PrivateIpAddresses[0].PrivateIpAddress)
-						iprivip = append(iprivip, *result.Reservations[res].Instances[i].NetworkInterfaces[j].PrivateIpAddresses[0].PrivateIpAddress)
+						var t descEC2InstOutput
+						t.iprivip = *result.Reservations[res].Instances[i].NetworkInterfaces[j].PrivateIpAddresses[0].PrivateIpAddress
+						t.iid = *result.Reservations[res].Instances[i].InstanceId
+						iprivip = append(iprivip, t)
 					}
+				}
+			}
+		}
+	} else {
+		for res := range result.Reservations {
+			for i := range result.Reservations[res].Instances {
+				for j := range result.Reservations[res].Instances[i].NetworkInterfaces {
+					var t descEC2InstOutput
+					t.iprivip = *result.Reservations[res].Instances[i].NetworkInterfaces[j].PrivateIpAddresses[0].PrivateIpAddress
+					t.iid = *result.Reservations[res].Instances[i].InstanceId
+					iprivip = append(iprivip, t)
 				}
 			}
 		}
@@ -449,7 +530,11 @@ func Discover(ec []AwsEcsInput) (AwsEcsOutput, error) {
 		}
 
 		// step: get instance ids
-		iid, iipsf, err := ec[i].describeContInst(ia)
+		var tia []string
+		for i := range ia {
+			tia = append(tia, ia[i].iarn)
+		}
+		iid, iipsf, err := ec[i].describeContInst(tia)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing container instances: %v", err)
 			return AwsEcsOutput{}, errors.New(errm)
@@ -459,13 +544,33 @@ func Discover(ec []AwsEcsInput) (AwsEcsOutput, error) {
 		}
 
 		// step: get instance privips
-		iprivi, err := ec[i].describeEC2Inst(iid)
+		var tiid []string
+		for i := range iid {
+			tiid = append(tiid, iid[i].iid)
+		}
+		iprivi, err := ec[i].describeEC2Inst(tiid)
 		if err != nil {
 			errm := fmt.Sprintf("ecs: error received when describing ec2 instances: %v", err)
 			return AwsEcsOutput{}, errors.New(errm)
 		}
 
-		log.Printf("all instance priv ips: %#v", iprivi)
+		var dve []string
+		for i := range iprivi {
+			var ts string
+			ts = iprivi[i].iprivip
+			for j := range iid {
+				if iprivi[i].iid == iid[j].iid {
+					for k := range ia {
+						if iid[j].iarn == ia[k].iarn {
+							ts = fmt.Sprintf("https://%v:%v", ts, ia[k].port)
+							dve = append(dve, ts)
+						}
+					}
+				}
+			}
+		}
+
+		log.Printf("all discovered vault endpoints: %#v", dve)
 
 		// this should return the struct of discovered vault servers
 		return AwsEcsOutput{}, nil

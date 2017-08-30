@@ -84,7 +84,7 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 	log.Println("run: starting the HTTPSrv")
 	wg.Add(1)
 	id := workerID{
-		Name: "httpSrv",
+		Name: "httpSrvWrk",
 		Type: "HTTPSrv",
 		ID:   1,
 	}
@@ -108,7 +108,7 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 		wg.Add(1)
 
 		id := vaultg.WorkerID{
-			Name: "vaultInit",
+			Name: "vaultInitWrk",
 			Type: "init",
 			ID:   1,
 		}
@@ -126,7 +126,7 @@ func run(srvConfig DbgConfig, vgconf vaultg.Config) {
 		log.Println("run: starting the vaultUnseal worker")
 		wg.Add(1)
 		id := vaultg.WorkerID{
-			Name: "vaultUnseal",
+			Name: "vaultUnsealWrk",
 			Type: "unseal",
 			ID:   1,
 		}
@@ -161,7 +161,7 @@ listenerloop:
 
 func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsOutput, error) {
 
-	log.Println("ecsDsc: running ECS discovery")
+	log.Println("ecsw: running ECS discovery")
 
 	// step: discover vault servers: extract type:ECS vault endpoints
 	var ecscl []ecs.AwsEcsInput
@@ -175,7 +175,7 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsOutput, err
 	}
 	if debugListenerPtr {
 		// for ve := range vgconf.Endpoints {
-		log.Printf("ecscl variable content: %v", ecscl)
+		log.Printf("config ECS clusters: %v", ecscl)
 		// }
 		if debugListenerConf {
 			spew.Dump(ecscl)
@@ -198,7 +198,7 @@ func runEcsDsc(srvconfig DbgConfig, vgconf vaultg.Config) (ecs.AwsEcsOutput, err
 func runHTTPSrv(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config, wg *sync.WaitGroup, id workerID) {
 
 	defer wg.Done()
-	defer log.Printf("%v: gracefully stopped.", id)
+	defer log.Printf("%v%v: gracefully stopped.", id.Name, id.ID)
 
 	addr := vaultg.Address + ":" + vaultg.Port
 	logger := log.New(os.Stdout, "", log.Ldate|log.Lshortfile)
@@ -209,10 +209,10 @@ func runHTTPSrv(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config, 
 	}
 
 	go func() {
-		logger.Printf("%v: server is listening on %v", id, hs.Addr)
+		logger.Printf("%v%v: server is listening on %v", id.Name, id.ID, hs.Addr)
 
 		if err := hs.ListenAndServe(); err != nil {
-			logger.Printf("%v: received an error: %v", id, err)
+			logger.Printf("%v%v: received an error: %v", id.Name, id.ID, err)
 		}
 	}()
 
@@ -221,7 +221,7 @@ func runHTTPSrv(ctx context.Context, srvConfig DbgConfig, vaultg vaultg.Config, 
 		select {
 		case <-ctx.Done():
 			if debugListenerPtr {
-				log.Printf("%v: caller has asked us to stop processing work; gracefully shutting down.", id)
+				log.Printf("%v%v: caller has asked us to stop processing work; gracefully shutting down.", id.Name, id.ID)
 			}
 			// shut down gracefully, but wait no longer than 5 seconds before halting
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
