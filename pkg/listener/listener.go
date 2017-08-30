@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/stefancocora/vaultguard/pkg/server"
-	"github.com/stefancocora/vaultguard/pkg/vault"
+	vaultg "github.com/stefancocora/vaultguard/pkg/vault"
 )
 
 var debugListenerPtr bool
@@ -31,60 +31,115 @@ func Entrypoint(srvConfig Config) error {
 		log.Printf("received config: %#v", srvConfig)
 	}
 
-	if err := startListen(srvConfig); err != nil {
-		return errors.Wrap(err, "server unable to start listening: %v")
-	}
-
-	if err := vault.Entrypoint(); err != nil {
-		return errors.Wrap(err, "vault handler error")
-	}
+	run(srvConfig)
 
 	return nil
+}
+
+// run starts all long running threads and communication chanels
+func run(srvConfig Config) {
+
+	// create a context that we can cancel
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	wg := &sync.WaitGroup{}
+
+	// os signal handler
+	if debugListenerPtr {
+		log.Println("*** debug: run: listening for OS signals on a channel")
+	}
+	osStopCh := make(chan os.Signal, 1)
+	signal.Notify(osStopCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL, syscall.SIGQUIT)
+
+	// step: start the HTTP server
+	if debugListenerPtr {
+		log.Println("*** debug: run: starting the httpSrv ")
+	}
+	wg.Add(1)
+	go startListen(ctx, srvConfig, wg)
+
+	// step: start vaultInit worker
+	if debugListenerPtr {
+		log.Println("*** debug: run: starting the vaultInit subroutine")
+	}
+	var vgconf vaultg.GuardConfig
+	if err := vgconf.New(); err != nil {
+		log.Printf("unable to create vaultguard configuration %v", err)
+	}
+	wg.Add(1)
+	retErrChInit := make(chan error)
+	go vaultg.RunInit(ctx, vgconf, wg, retErrChInit) // start vault Init worker
+
+	// step: start vaultUnseal worker
+	if debugListenerPtr {
+		log.Println("*** debug: run: starting the vaultUnseal subroutine")
+	}
+	var vgconf02 vaultg.GuardConfig
+	if err := vgconf02.New(); err != nil {
+		log.Printf("unable to create vaultguard configuration %v", err)
+	}
+	wg.Add(1)
+	retErrChUnseal := make(chan error)
+	go vaultg.RunUnseal(ctx, vgconf, wg, retErrChUnseal) // start vault Init worker
+
+	// step: long running wait
+	select {
+	case sig := <-osStopCh:
+		log.Printf("run: received termination signal %v, asking all goroutines to stop.", sig)
+		// send shutdown to all goroutines
+		cancel()
+
+		// step: wait for all goroutines to stop
+		wg.Wait()
+		log.Println("run: all goroutines have stopped, terminating.")
+	case err := <-retErrChUnseal:
+		log.Printf("run: error received from the vaultUnseal worker: %v", err)
+	case err := <-retErrChInit:
+		log.Printf("run: error received from the vaultInit worker: %v", err)
+	}
+
+	return
 }
 
 // startListen starts the HTTP server
-func startListen(srvConfig Config) error {
+func startListen(ctx context.Context, srvConfig Config, wg *sync.WaitGroup) {
 
-	hs, logger := setup(srvConfig)
+	defer wg.Done()
+	addr := srvConfig.Address + ":" + srvConfig.Port
+	logger := log.New(os.Stdout, "", log.Ldate|log.Lshortfile)
+
+	hs := &http.Server{
+		Addr:    addr,
+		Handler: server.New(server.Logger(logger)),
+	}
 
 	go func() {
-		logger.Printf("server is listening on %v", hs.Addr)
+		logger.Printf("httpSrv: server is listening on %v", hs.Addr)
+
 		if err := hs.ListenAndServe(); err != nil {
-			logger.Fatalf("unable to bind to %v", hs.Addr)
+			logger.Printf("httpSrv: received an error: %v", err)
 		}
 	}()
 
-	graceful(hs, logger, 5*time.Second)
+	// long running
+	for {
+		select {
+		case <-ctx.Done():
+			if debugListenerPtr {
+				log.Println("httpSrv: caller has asked us to stop processing work; gracefully shutting down.")
+			}
+			// shut down gracefully, but wait no longer than 5 seconds before halting
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-	return nil
-}
+			// ignore error since it will be "Err shutting down server : context canceled"
+			hs.Shutdown(shutdownCtx)
 
-func setup(srvConfig Config) (*http.Server, *log.Logger) {
-	addr := srvConfig.Address + ":" + srvConfig.Port
-
-	logger := log.New(os.Stdout, "", 0)
-
-	return &http.Server{
-		Addr:    addr,
-		Handler: server.New(server.Logger(logger)),
-	}, logger
-}
-
-func graceful(hs *http.Server, logger *log.Logger, timeout time.Duration) {
-	stop := make(chan os.Signal, 1)
-
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	<-stop
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	logger.Printf("\nShutdown with timeout: %s\n", timeout)
-
-	if err := hs.Shutdown(ctx); err != nil {
-		logger.Printf("Error: %v\n", err)
-	} else {
-		logger.Println("Server stopped")
+			if debugListenerPtr {
+				log.Println("httpSrv: gracefully stopped.")
+			}
+			return
+		}
 	}
 }

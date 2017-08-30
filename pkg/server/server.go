@@ -25,7 +25,7 @@ func New(options ...func(*Server)) *Server {
 
 	if s.logger == nil {
 		// s.logger = log.New(os.Stdout, "", 0)
-		s.logger = log.New(os.Stdout, "", log.Lshortfile)
+		s.logger = log.New(os.Stdout, "", log.Ldate|log.Lshortfile)
 	}
 
 	s.mux.HandleFunc("/healthz", s.healthz)
@@ -37,7 +37,7 @@ func New(options ...func(*Server)) *Server {
 
 // ServeHTTP is the http handler for the mux
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Server", "example Go server")
+	w.Header().Set("Server", "go server")
 
 	s.mux.ServeHTTP(w, r)
 }

@@ -17,17 +17,16 @@ func main() {
 	}
 
 	binversion = vers
-	log.Printf("bin: %v binver: %v pkg: %v", version.BinaryName, vers, "main")
+	log.Printf("bin: %v binver: %v pkg: %v message: %v", version.BinaryName, vers, "main", "starting engines")
 
-	log.Print("starting engines")
 	buildctx, err := version.BuildContext()
 	if err != nil {
 		log.Fatalf("[FATAL] main wrong BuildContext - %v", errors.Cause(err))
 	}
 
-	log.Printf("build context ( %v )", buildctx)
+	log.Printf("bin: %v binver: %v pkg: %v message: %v ( %v )", version.BinaryName, vers, "main", "build context", buildctx)
 
 	cmd.Execute()
 
-	log.Print("stopping engines, we're done")
+	log.Printf("bin: %v binver: %v pkg: %v message: %v", version.BinaryName, vers, "main", "stopping engines, we're done")
 }
